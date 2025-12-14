@@ -11,6 +11,24 @@ public class BlockMapping {
 
     private static final List<Block> TARGET_BLOCKS = new ArrayList<>();
 
+    // 方向标记方块
+    public static final Block MARKER_BLOCK = Blocks.REDSTONE_BLOCK;
+
+    /*
+      方向标记模式
+      在最底层(y=0)放置4个红石块标记方向
+      模式：
+        R . .    R = 红石块
+        . . .    . = 空气
+        R . R
+
+      三个红石块形成L形，指示方向：
+      - 如果L的开口朝北，则数据向北延伸
+      - 如果L的开口朝南，则数据向南延伸
+      - 如果L的开口朝东，则数据向东延伸
+      - 如果L的开口朝西，则数据向西延伸
+     */
+
     static {
         // 0-15: 16种羊毛
         TARGET_BLOCKS.add(Blocks.WHITE_WOOL);
