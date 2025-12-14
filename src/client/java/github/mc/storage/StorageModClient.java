@@ -1,6 +1,5 @@
 package github.mc.storage;
 
-import com.mojang.brigadier.arguments.IntegerArgumentType;
 import github.mc.storage.utils.BlockGenerator;
 import github.mc.storage.utils.DataProcessor;
 import net.fabricmc.api.ClientModInitializer;
@@ -74,7 +73,7 @@ public class StorageModClient implements ClientModInitializer {
                             BlockGenerator.generateBlocksAtPlayer(base64Data);
 
                             context.getSource().sendFeedback(Component.literal("§a方块生成完成!"));
-                            context.getSource().sendFeedback(Component.literal("§e提示: 使用 /loadfromblock <layers> 可以从方块还原文件"));
+                            context.getSource().sendFeedback(Component.literal("§e提示: 使用 /loadfromblock 可以从方块还原文件"));
 
                         } catch (IOException e) {
                             context.getSource().sendFeedback(Component.literal("§c错误: " + e.getMessage()));
@@ -87,48 +86,44 @@ public class StorageModClient implements ClientModInitializer {
 
             // 注册 restorefiles 指令
             dispatcher.register(ClientCommandManager.literal("loadfromblock")
-                    .then(ClientCommandManager.argument("layers", IntegerArgumentType.integer(1))
-                            .executes(context -> {
-                                Minecraft client = Minecraft.getInstance();
-                                if (client.player == null) {
-                                    return 0;
-                                }
+                    .executes(context -> {
+                        Minecraft client = Minecraft.getInstance();
+                        if (client.player == null) {
+                            return 0;
+                        }
 
-                                try {
-                                    // 获取层数参数
-                                    int layers = IntegerArgumentType.getInteger(context, "layers");
+                        try {
+                            context.getSource().sendFeedback(Component.literal("§a正在自动检测并还原方块数据..."));
 
-                                    context.getSource().sendFeedback(Component.literal("§a正在从 " + layers + " 层方块还原数据..."));
+                            // 从玩家附近的方块还原数据，自动检测方向标记和层数
+                            BlockPos playerPos = client.player.blockPosition();
+                            BlockPos searchPos = playerPos.relative(client.player.getDirection(), 2);
 
-                                    // 从玩家附近的方块还原数据，自动检测方向标记
-                                    BlockPos playerPos = client.player.blockPosition();
-                                    BlockPos searchPos = playerPos.relative(client.player.getDirection(), 2);
+                            String base64Data = BlockGenerator.restoreFromBlocks(searchPos);
 
-                                    String base64Data = BlockGenerator.restoreFromBlocks(searchPos, layers);
+                            if (base64Data.isEmpty()) {
+                                context.getSource().sendFeedback(Component.literal("§c错误: 未找到方向标记或无法还原数据!"));
+                                return 0;
+                            }
 
-                                    if (base64Data.isEmpty()) {
-                                        context.getSource().sendFeedback(Component.literal("§c错误: 无法还原数据!"));
-                                        return 0;
-                                    }
+                            context.getSource().sendFeedback(Component.literal("§a数据还原成功! Base64 长度: " + base64Data.length()));
 
-                                    context.getSource().sendFeedback(Component.literal("§a数据还原成功! Base64 长度: " + base64Data.length()));
+                            // 解码 Base64 并解压到 restored_files 文件夹
+                            Path minecraftDir = client.gameDirectory.toPath();
+                            Path restoredDir = minecraftDir.resolve("restored_files");
 
-                                    // 解码 Base64 并解压到 restored_files 文件夹
-                                    Path minecraftDir = client.gameDirectory.toPath();
-                                    Path restoredDir = minecraftDir.resolve("restored_files");
+                            DataProcessor.restoreFilesFromBase64(base64Data, restoredDir);
 
-                                    DataProcessor.restoreFilesFromBase64(base64Data, restoredDir);
+                            context.getSource().sendFeedback(Component.literal("§a文件已还原到: " + restoredDir));
 
-                                    context.getSource().sendFeedback(Component.literal("§a文件已还原到: " + restoredDir));
+                        } catch (Exception e) {
+                            context.getSource().sendFeedback(Component.literal("§c错误: " + e.getMessage()));
+                            e.printStackTrace();
+                            return 0;
+                        }
 
-                                } catch (Exception e) {
-                                    context.getSource().sendFeedback(Component.literal("§c错误: " + e.getMessage()));
-                                    e.printStackTrace();
-                                    return 0;
-                                }
-
-                                return 1;
-                            })));
+                        return 1;
+                    }));
         });
     }
 }

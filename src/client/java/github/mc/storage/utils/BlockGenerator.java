@@ -105,13 +105,12 @@ public class BlockGenerator {
 
     /**
      * 从方块结构还原 Base64 数据
-     * 现在会自动检测方向标记，不需要传入方向参数
+     * 自动检测方向标记和层数，读取直到遇到空层
      *
      * @param searchStartPos 搜索起始位置
-     * @param layers         层数
      * @return Base64 编码的字符串
      */
-    public static String restoreFromBlocks(BlockPos searchStartPos, int layers) {
+    public static String restoreFromBlocks(BlockPos searchStartPos) {
         Minecraft client = Minecraft.getInstance();
         if (client.level == null) {
             return "";
@@ -130,8 +129,13 @@ public class BlockGenerator {
 
         StringBuilder base64Data = new StringBuilder();
 
-        // 从第1层开始读取（第0层是方向标记）
-        for (int layer = 1; layer <= layers; layer++) {
+        // 从第1层开始读取（第0层是方向标记），一直读取直到遇到空层
+        int layer = 1;
+        int maxLayers = 256; // 设置最大层数限制，防止无限循环
+
+        while (layer <= maxLayers) {
+            boolean hasValidBlocks = false;
+
             for (int localZ = 0; localZ < 64; localZ++) {
                 for (int localX = 0; localX < 64; localX++) {
                     // 根据方向计算实际位置
@@ -151,9 +155,17 @@ public class BlockGenerator {
                         // 将索引转换回 Base64 字符
                         char c = indexToBase64Char(blockIndex);
                         base64Data.append(c);
+                        hasValidBlocks = true;
                     }
                 }
             }
+
+            // 如果这一层没有任何有效方块，说明读取完成
+            if (!hasValidBlocks) {
+                break;
+            }
+
+            layer++;
         }
 
         return base64Data.toString();
