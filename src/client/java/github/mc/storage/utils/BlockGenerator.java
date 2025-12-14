@@ -43,7 +43,7 @@ public class BlockGenerator {
         generateDirectionMarkers(level, startPos, direction);
 
         // 异步逐层生成
-        new Thread(() -> {
+        Thread.ofVirtual().start(() -> {
             try {
                 int charIndex = 0;
                 int currentLayer = 1; // 从第1层开始，第0层用于方向标记
@@ -100,7 +100,7 @@ public class BlockGenerator {
             } catch (InterruptedException e) {
                 client.execute(() -> progressCallback.accept("§c生成被中断: " + e.getMessage()));
             }
-        }).start();
+        });
     }
 
     /**
