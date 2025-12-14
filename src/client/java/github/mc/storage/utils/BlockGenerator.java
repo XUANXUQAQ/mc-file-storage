@@ -7,20 +7,21 @@ import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Block;
 
 import java.util.Optional;
+import java.util.function.Consumer;
 
 public class BlockGenerator {
 
+    private static final int MAX_LAYERS = 256;
+
     /**
-     * 将 Base64 数据编码为方块结构
-     * 每个字符用 6 位表示 (Base64: 0-63)
-     * 每层是 64x64 的平面，从下往上堆叠
-     * 第0层放置方向标记，数据从第1层开始
+     * 异步生成方块，逐层显示进度
      *
-     * @param startPos   起始位置
-     * @param base64Data Base64 编码的数据
-     * @param direction  生成方向（玩家朝向）
+     * @param startPos         起始位置
+     * @param base64Data       Base64数据
+     * @param direction        方向
+     * @param progressCallback 进度回调函数
      */
-    public static void generateBlocks(BlockPos startPos, String base64Data, Direction direction) {
+    public static void generateBlocksAsync(BlockPos startPos, String base64Data, Direction direction, Consumer<String> progressCallback) {
         Minecraft client = Minecraft.getInstance();
         if (client.level == null) {
             return;
@@ -28,58 +29,78 @@ public class BlockGenerator {
 
         Level level = client.level;
 
+        // 计算需要的层数
+        int totalLayers = calculateLayers(base64Data);
+
+        // 检查是否超过高度限制
+        if (totalLayers > MAX_LAYERS) {
+            progressCallback.accept("§c错误: 数据需要 " + totalLayers + " 层，超过了 " + MAX_LAYERS + " 层的限制!");
+            progressCallback.accept("§e建议: 请减小文件大小或分批处理");
+            return;
+        }
+
         // 首先生成方向标记
         generateDirectionMarkers(level, startPos, direction);
 
-        // Base64 字符到索引的映射 (0-63)
-        int charIndex = 0;
-        int layer = 1; // 从第1层开始，第0层用于方向标记
+        // 异步逐层生成
+        new Thread(() -> {
+            try {
+                int charIndex = 0;
+                int currentLayer = 1; // 从第1层开始，第0层用于方向标记
 
-        for (char c : base64Data.toCharArray()) {
-            // 将 Base64 字符转换为 0-63 的索引
-            int blockTypeIndex = base64CharToIndex(c);
-            if (blockTypeIndex < 0) {
-                charIndex++;
-                continue; // 跳过无效字符
+                for (char c : base64Data.toCharArray()) {
+                    // 将 Base64 字符转换为 0-63 的索引
+                    int blockTypeIndex = base64CharToIndex(c);
+                    if (blockTypeIndex < 0) {
+                        charIndex++;
+                        continue; // 跳过无效字符
+                    }
+
+                    // 计算在当前层中的位置
+                    int posInLayer = charIndex % (64 * 64); // 每层最多 64*64 = 4096 个方块
+                    int localX = posInLayer % 64;
+                    int localZ = (posInLayer / 64) % 64;
+
+                    // 检测是否需要切换到下一层
+                    int newLayer = 1 + (charIndex / (64 * 64));
+                    if (newLayer != currentLayer) {
+                        currentLayer = newLayer;
+                        // 更新进度
+                        int finalCurrentLayer = currentLayer;
+                        client.execute(() -> progressCallback.accept("§a正在生成第 " + finalCurrentLayer + "/" + totalLayers + " 层..."));
+                        // 添加延迟，让玩家能看到生成动画
+                        Thread.sleep(50);
+                    }
+
+                    Optional<Block> blockOpt = BlockMapping.getBlock(blockTypeIndex);
+                    if (blockOpt.isEmpty()) {
+                        charIndex++;
+                        continue;
+                    }
+
+                    Block block = blockOpt.get();
+
+                    BlockPos pos = switch (direction) {
+                        case NORTH -> startPos.offset(localX - 32, currentLayer, -localZ);
+                        case SOUTH -> startPos.offset(localX - 32, currentLayer, localZ);
+                        case WEST -> startPos.offset(-localZ, currentLayer, localX - 32);
+                        case EAST -> startPos.offset(localZ, currentLayer, localX - 32);
+                        default -> startPos.offset(localX - 32, currentLayer, localZ);
+                    };
+
+                    // 在主线程中放置方块
+                    client.execute(() -> level.setBlock(pos, block.defaultBlockState(), 3));
+
+                    charIndex++;
+                }
+
+                // 生成完成
+                client.execute(() -> progressCallback.accept("§a方块生成完成! 共 " + totalLayers + " 层"));
+
+            } catch (InterruptedException e) {
+                client.execute(() -> progressCallback.accept("§c生成被中断: " + e.getMessage()));
             }
-
-            // 计算在当前层中的位置
-            int posInLayer = charIndex % (64 * 64); // 每层最多 64*64 = 4096 个方块
-            int localX = posInLayer % 64;
-            int localZ = (posInLayer / 64) % 64;
-
-            // 如果填满一层，移到下一层
-            if (charIndex > 0 && charIndex % (64 * 64) == 0) {
-                layer++;
-            }
-
-            // 获取对应的方块类型
-            Optional<Block> blockOpt = BlockMapping.getBlock(blockTypeIndex);
-            if (blockOpt.isEmpty()) {
-                charIndex++;
-                continue;
-            }
-
-            Block block = blockOpt.get();
-
-            // 根据玩家朝向计算实际位置
-            BlockPos pos = switch (direction) {
-                case NORTH -> // 朝北 (-Z)
-                        startPos.offset(localX - 32, layer, -localZ);
-                case SOUTH -> // 朝南 (+Z)
-                        startPos.offset(localX - 32, layer, localZ);
-                case WEST -> // 朝西 (-X)
-                        startPos.offset(-localZ, layer, localX - 32);
-                case EAST -> // 朝东 (+X)
-                        startPos.offset(localZ, layer, localX - 32);
-                default -> startPos.offset(localX - 32, layer, localZ);
-            };
-
-            // 放置方块
-            level.setBlock(pos, block.defaultBlockState(), 3);
-
-            charIndex++;
-        }
+        }).start();
     }
 
     /**
@@ -131,9 +152,8 @@ public class BlockGenerator {
 
         // 从第1层开始读取（第0层是方向标记），一直读取直到遇到空层
         int layer = 1;
-        int maxLayers = 256; // 设置最大层数限制，防止无限循环
 
-        while (layer <= maxLayers) {
+        while (layer <= MAX_LAYERS) {
             boolean hasValidBlocks = false;
 
             for (int localZ = 0; localZ < 64; localZ++) {
@@ -262,11 +282,12 @@ public class BlockGenerator {
     }
 
     /**
-     * 在玩家当前位置前方生成方块
+     * 在玩家当前位置前方异步生成方块
      *
-     * @param base64Data Base64 编码的数据
+     * @param base64Data       Base64 编码的数据
+     * @param progressCallback 进度回调
      */
-    public static void generateBlocksAtPlayer(String base64Data) {
+    public static void generateBlocksAtPlayerAsync(String base64Data, Consumer<String> progressCallback) {
         Minecraft client = Minecraft.getInstance();
         if (client.player == null) {
             return;
@@ -274,10 +295,10 @@ public class BlockGenerator {
 
         // 从玩家前方2格处开始生成（避免卡在玩家身上）
         BlockPos playerPos = client.player.blockPosition();
-        net.minecraft.core.Direction direction = client.player.getDirection();
+        Direction direction = client.player.getDirection();
         BlockPos startPos = playerPos.relative(direction, 2);
 
-        generateBlocks(startPos, base64Data, direction);
+        generateBlocksAsync(startPos, base64Data, direction, progressCallback);
     }
 
     /**

@@ -8,6 +8,8 @@ import net.fabricmc.fabric.api.client.command.v2.ClientCommandRegistrationCallba
 import net.minecraft.client.Minecraft;
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.File;
 import java.io.IOException;
@@ -17,6 +19,11 @@ import java.util.Arrays;
 import java.util.List;
 
 public class StorageModClient implements ClientModInitializer {
+
+    public static final String MOD_ID = "mc-storage";
+
+    public static final Logger LOGGER = LoggerFactory.getLogger(MOD_ID);
+
     @Override
     public void onInitializeClient() {
         // This entrypoint is suitable for setting up client-specific logic, such as rendering.
@@ -67,17 +74,13 @@ public class StorageModClient implements ClientModInitializer {
                             // 计算需要的层数
                             int layers = BlockGenerator.calculateLayers(base64Data);
                             context.getSource().sendFeedback(Component.literal("§a将生成 " + layers + " 层方块 (每层 64x64)"));
-                            context.getSource().sendFeedback(Component.literal("§a正在生成方块..."));
 
-                            // 在玩家当前位置生成方块
-                            BlockGenerator.generateBlocksAtPlayer(base64Data);
-
-                            context.getSource().sendFeedback(Component.literal("§a方块生成完成!"));
-                            context.getSource().sendFeedback(Component.literal("§e提示: 使用 /loadfromblock 可以从方块还原文件"));
+                            // 使用异步方法生成方块，显示进度
+                            BlockGenerator.generateBlocksAtPlayerAsync(base64Data, message -> context.getSource().sendFeedback(Component.literal(message)));
 
                         } catch (IOException e) {
                             context.getSource().sendFeedback(Component.literal("§c错误: " + e.getMessage()));
-                            e.printStackTrace();
+                            LOGGER.error("error {}", e.getMessage(), e);
                             return 0;
                         }
 
@@ -118,7 +121,7 @@ public class StorageModClient implements ClientModInitializer {
 
                         } catch (Exception e) {
                             context.getSource().sendFeedback(Component.literal("§c错误: " + e.getMessage()));
-                            e.printStackTrace();
+                            LOGGER.error("error {}", e.getMessage(), e);
                             return 0;
                         }
 
