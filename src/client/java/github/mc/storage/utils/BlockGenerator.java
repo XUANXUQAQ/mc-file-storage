@@ -47,7 +47,18 @@ public class BlockGenerator {
             return;
         }
 
-        Level level = client.level;
+        // 获取服务器端的世界（即使是单人游戏也有内部服务器）
+        var server = client.getSingleplayerServer();
+        if (server == null) {
+            progressCallback.accept("§c错误: 只能在单人世界使用此功能!");
+            return;
+        }
+
+        var serverLevel = server.getLevel(client.level.dimension());
+        if (serverLevel == null) {
+            progressCallback.accept("§c错误: 无法获取服务器端世界!");
+            return;
+        }
 
         // 计算最优底面积大小
         int baseSize = calculateBaseSize(base64Data.length());
@@ -65,9 +76,11 @@ public class BlockGenerator {
 
         progressCallback.accept("§a使用底面积: " + baseSize + "x" + baseSize + " (共 " + totalLayers + " 层)");
 
-        // 首先生成方向标记和尺寸标记
-        generateDirectionMarkers(level, startPos, direction);
-        generateSizeMarkers(level, startPos, baseSize, direction);
+        // 首先生成方向标记和尺寸标记（在服务器端）
+        server.execute(() -> {
+            generateDirectionMarkers(serverLevel, startPos, direction);
+            generateSizeMarkers(serverLevel, startPos, baseSize, direction);
+        });
 
         // 异步逐层生成
         Thread.ofVirtual().start(() -> {
@@ -116,8 +129,8 @@ public class BlockGenerator {
                         default -> startPos.offset(localX - halfBase, currentLayer, localZ);
                     };
 
-                    // 在主线程中放置方块
-                    client.execute(() -> level.setBlock(pos, block.defaultBlockState(), 3));
+                    // 在服务器主线程中放置方块
+                    server.execute(() -> serverLevel.setBlock(pos, block.defaultBlockState(), 3));
 
                     charIndex++;
                 }
