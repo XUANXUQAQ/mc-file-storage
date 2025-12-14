@@ -12,7 +12,7 @@
     "sources": "https://github.com/XUANXUQAQ/mc-file-storage"
   },
   "license": "CC0-1.0",
-  "icon": "assets/modid/icon.png",
+  "icon": "assets/mc/storage/icon.png",
   "environment": "client",
   "entrypoints": {
     "main": [
