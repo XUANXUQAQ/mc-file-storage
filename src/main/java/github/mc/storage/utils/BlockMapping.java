@@ -14,6 +14,9 @@ public class BlockMapping {
     // 方向标记方块
     public static final Block MARKER_BLOCK = Blocks.REDSTONE_BLOCK;
 
+    // 尺寸标记方块
+    public static final Block SIZE_MARKER_BLOCK = Blocks.EMERALD_BLOCK;
+
     /*
       方向标记模式
       在最底层(y=0)放置4个红石块标记方向

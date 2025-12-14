@@ -12,6 +12,26 @@ import java.util.function.Consumer;
 public class BlockGenerator {
 
     private static final int MAX_LAYERS = 256;
+    private static final int MIN_BASE_SIZE = 64;
+    private static final int MAX_BASE_SIZE = 512;
+
+    /**
+     * 计算最优的底面积大小
+     *
+     * @param dataLength 数据长度
+     * @return 底面积大小（64-512）
+     */
+    public static int calculateBaseSize(int dataLength) {
+        // 计算每层需要多少个方块
+        int blocksPerLayer = (int) Math.ceil((double) dataLength / MAX_LAYERS);
+
+        // 计算需要的底边长（向上取整到最近的64的倍数）
+        int baseSize = (int) Math.ceil(Math.sqrt(blocksPerLayer));
+        baseSize = ((baseSize + 63) / 64) * 64; // 向上取整到64的倍数
+
+        // 限制在 MIN_BASE_SIZE 到 MAX_BASE_SIZE 之间
+        return Math.max(MIN_BASE_SIZE, Math.min(MAX_BASE_SIZE, baseSize));
+    }
 
     /**
      * 异步生成方块，逐层显示进度
@@ -29,8 +49,12 @@ public class BlockGenerator {
 
         Level level = client.level;
 
+        // 计算最优底面积大小
+        int baseSize = calculateBaseSize(base64Data.length());
+        int blocksPerLayer = baseSize * baseSize;
+
         // 计算需要的层数
-        int totalLayers = calculateLayers(base64Data);
+        int totalLayers = (int) Math.ceil((double) base64Data.length() / blocksPerLayer) + 1; // +1 for markers
 
         // 检查是否超过高度限制
         if (totalLayers > MAX_LAYERS) {
@@ -39,14 +63,18 @@ public class BlockGenerator {
             return;
         }
 
-        // 首先生成方向标记
+        progressCallback.accept("§a使用底面积: " + baseSize + "x" + baseSize + " (共 " + totalLayers + " 层)");
+
+        // 首先生成方向标记和尺寸标记
         generateDirectionMarkers(level, startPos, direction);
+        generateSizeMarkers(level, startPos, baseSize);
 
         // 异步逐层生成
         Thread.ofVirtual().start(() -> {
             try {
                 int charIndex = 0;
                 int currentLayer = 1; // 从第1层开始，第0层用于方向标记
+                int halfBase = baseSize / 2;
 
                 for (char c : base64Data.toCharArray()) {
                     // 将 Base64 字符转换为 0-63 的索引
@@ -57,12 +85,12 @@ public class BlockGenerator {
                     }
 
                     // 计算在当前层中的位置
-                    int posInLayer = charIndex % (64 * 64); // 每层最多 64*64 = 4096 个方块
-                    int localX = posInLayer % 64;
-                    int localZ = (posInLayer / 64) % 64;
+                    int posInLayer = charIndex % blocksPerLayer;
+                    int localX = posInLayer % baseSize;
+                    int localZ = (posInLayer / baseSize) % baseSize;
 
                     // 检测是否需要切换到下一层
-                    int newLayer = 1 + (charIndex / (64 * 64));
+                    int newLayer = 1 + (charIndex / blocksPerLayer);
                     if (newLayer != currentLayer) {
                         currentLayer = newLayer;
                         // 更新进度
@@ -81,11 +109,11 @@ public class BlockGenerator {
                     Block block = blockOpt.get();
 
                     BlockPos pos = switch (direction) {
-                        case NORTH -> startPos.offset(localX - 32, currentLayer, -localZ);
-                        case SOUTH -> startPos.offset(localX - 32, currentLayer, localZ);
-                        case WEST -> startPos.offset(-localZ, currentLayer, localX - 32);
-                        case EAST -> startPos.offset(localZ, currentLayer, localX - 32);
-                        default -> startPos.offset(localX - 32, currentLayer, localZ);
+                        case NORTH -> startPos.offset(localX - halfBase, currentLayer, -localZ);
+                        case SOUTH -> startPos.offset(localX - halfBase, currentLayer, localZ);
+                        case WEST -> startPos.offset(-localZ, currentLayer, localX - halfBase);
+                        case EAST -> startPos.offset(localZ, currentLayer, localX - halfBase);
+                        default -> startPos.offset(localX - halfBase, currentLayer, localZ);
                     };
 
                     // 在主线程中放置方块
@@ -95,7 +123,7 @@ public class BlockGenerator {
                 }
 
                 // 生成完成
-                client.execute(() -> progressCallback.accept("§a方块生成完成! 共 " + totalLayers + " 层"));
+                client.execute(() -> progressCallback.accept("§a方块生成完成! 共 " + totalLayers + " 层，底面积 " + baseSize + "x" + baseSize));
 
             } catch (InterruptedException e) {
                 client.execute(() -> progressCallback.accept("§c生成被中断: " + e.getMessage()));
@@ -125,6 +153,20 @@ public class BlockGenerator {
     }
 
     /**
+     * 生成尺寸标记
+     * 使用绿宝石块在第0层标记底面积大小
+     * 标记方式：在 X 轴正方向放置 (baseSize / 64) 个绿宝石块
+     */
+    private static void generateSizeMarkers(Level level, BlockPos startPos, int baseSize) {
+        int markerCount = baseSize / 64; // 64->1, 128->2, 192->3, 256->4, ...
+
+        for (int i = 1; i <= markerCount; i++) {
+            BlockPos markerPos = startPos.offset(i + 1, 0, 0); // 在红石块旁边
+            level.setBlock(markerPos, BlockMapping.SIZE_MARKER_BLOCK.defaultBlockState(), 3);
+        }
+    }
+
+    /**
      * 从方块结构还原 Base64 数据
      * 自动检测方向标记和层数，读取直到遇到空层
      *
@@ -139,14 +181,15 @@ public class BlockGenerator {
 
         Level level = client.level;
 
-        // 搜索方向标记并确定实际起始位置和方向
-        DirectionInfo directionInfo = findDirectionMarkers(level, searchStartPos);
-        if (directionInfo == null) {
-            return ""; // 未找到方向标记
+        StructureInfo structureInfo = findStructureInfo(level, searchStartPos);
+        if (structureInfo == null) {
+            return "";
         }
 
-        BlockPos startPos = directionInfo.startPos;
-        Direction direction = directionInfo.direction;
+        BlockPos startPos = structureInfo.startPos;
+        Direction direction = structureInfo.direction;
+        int baseSize = structureInfo.baseSize;
+        int halfBase = baseSize / 2;
 
         StringBuilder base64Data = new StringBuilder();
 
@@ -156,15 +199,15 @@ public class BlockGenerator {
         while (layer <= MAX_LAYERS) {
             boolean hasValidBlocks = false;
 
-            for (int localZ = 0; localZ < 64; localZ++) {
-                for (int localX = 0; localX < 64; localX++) {
+            for (int localZ = 0; localZ < baseSize; localZ++) {
+                for (int localX = 0; localX < baseSize; localX++) {
                     // 根据方向计算实际位置
                     BlockPos pos = switch (direction) {
-                        case NORTH -> startPos.offset(localX - 32, layer, -localZ);
-                        case SOUTH -> startPos.offset(localX - 32, layer, localZ);
-                        case WEST -> startPos.offset(-localZ, layer, localX - 32);
-                        case EAST -> startPos.offset(localZ, layer, localX - 32);
-                        default -> startPos.offset(localX - 32, layer, localZ);
+                        case NORTH -> startPos.offset(localX - halfBase, layer, -localZ);
+                        case SOUTH -> startPos.offset(localX - halfBase, layer, localZ);
+                        case WEST -> startPos.offset(-localZ, layer, localX - halfBase);
+                        case EAST -> startPos.offset(localZ, layer, localX - halfBase);
+                        default -> startPos.offset(localX - halfBase, layer, localZ);
                     };
 
                     Block block = level.getBlockState(pos).getBlock();
@@ -192,15 +235,14 @@ public class BlockGenerator {
     }
 
     /**
-     * 搜索方向标记并返回方向信息
+     * 搜索结构信息（方向标记和尺寸标记）
      */
-    private static DirectionInfo findDirectionMarkers(Level level, BlockPos searchCenter) {
-        // 在搜索中心周围寻找L形红石块标记
-        int searchRadius = 10;
+    private static StructureInfo findStructureInfo(Level level, BlockPos searchCenter) {
+        int searchRadius = 20; // 增大搜索范围以适应更大的底面积
 
         for (int x = -searchRadius; x <= searchRadius; x++) {
             for (int z = -searchRadius; z <= searchRadius; z++) {
-                for (int y = -5; y <= 5; y++) { // 在垂直方向也搜索一定范围
+                for (int y = -5; y <= 5; y++) {
                     BlockPos testPos = searchCenter.offset(x, y, z);
 
                     // 检查是否为红石块
@@ -208,7 +250,9 @@ public class BlockGenerator {
                         // 尝试识别L形标记的方向
                         Direction direction = detectMarkerDirection(level, testPos);
                         if (direction != null) {
-                            return new DirectionInfo(testPos, direction);
+                            // 检测尺寸标记
+                            int baseSize = detectBaseSize(level, testPos);
+                            return new StructureInfo(testPos, direction, baseSize);
                         }
                     }
                 }
@@ -216,6 +260,25 @@ public class BlockGenerator {
         }
 
         return null;
+    }
+
+    /**
+     * 检测底面积大小
+     */
+    private static int detectBaseSize(Level level, BlockPos markerPos) {
+        // 在红石块旁边数绿宝石块
+        int count = 0;
+        for (int i = 1; i <= 10; i++) { // 最多检测10个（对应640）
+            BlockPos checkPos = markerPos.offset(i + 1, 0, 0);
+            if (level.getBlockState(checkPos).getBlock() == BlockMapping.SIZE_MARKER_BLOCK) {
+                count++;
+            } else {
+                break;
+            }
+        }
+
+        // 如果没有找到尺寸标记，使用默认值64
+        return count == 0 ? 64 : count * 64;
     }
 
     /**
@@ -252,9 +315,9 @@ public class BlockGenerator {
     }
 
     /**
-     * 方向信息类
+     * 结构信息类
      */
-    private record DirectionInfo(BlockPos startPos, Direction direction) {
+    private record StructureInfo(BlockPos startPos, Direction direction, int baseSize) {
     }
 
     /**
@@ -305,7 +368,8 @@ public class BlockGenerator {
      * 计算需要的层数
      */
     public static int calculateLayers(String base64Data) {
-        int totalBlocks = base64Data.length();
-        return (int) Math.ceil((double) totalBlocks / (64.0 * 64.0)) + 1; // +1 for marker layer
+        int baseSize = calculateBaseSize(base64Data.length());
+        int blocksPerLayer = baseSize * baseSize;
+        return (int) Math.ceil((double) base64Data.length() / blocksPerLayer) + 1;
     }
 }
