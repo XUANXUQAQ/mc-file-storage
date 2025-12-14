@@ -67,7 +67,7 @@ public class BlockGenerator {
 
         // 首先生成方向标记和尺寸标记
         generateDirectionMarkers(level, startPos, direction);
-        generateSizeMarkers(level, startPos, baseSize);
+        generateSizeMarkers(level, startPos, baseSize, direction);
 
         // 异步逐层生成
         Thread.ofVirtual().start(() -> {
@@ -155,13 +155,23 @@ public class BlockGenerator {
     /**
      * 生成尺寸标记
      * 使用绿宝石块在第0层标记底面积大小
-     * 标记方式：在 X 轴正方向放置 (baseSize / 64) 个绿宝石块
+     * 标记方式：在L形标记的内侧放置 (baseSize / 64) 个绿宝石块
      */
-    private static void generateSizeMarkers(Level level, BlockPos startPos, int baseSize) {
+    private static void generateSizeMarkers(Level level, BlockPos startPos, int baseSize, Direction direction) {
         int markerCount = baseSize / 64; // 64->1, 128->2, 192->3, 256->4, ...
 
+        // 根据方向决定绿宝石块的放置位置（L形内侧）
+        int[] offset = switch (direction) {
+            case NORTH -> new int[]{1, 1};  // 向右上（东北）
+            case SOUTH -> new int[]{-1, -1}; // 向左下（西南）
+            case EAST -> new int[]{-1, 1};  // 向左上（东南）
+            case WEST -> new int[]{1, -1};  // 向右下（西北）
+            default -> new int[]{1, 1};
+        };
+
+        // 沿着L形内侧放置绿宝石块
         for (int i = 1; i <= markerCount; i++) {
-            BlockPos markerPos = startPos.offset(i + 1, 0, 0); // 在红石块旁边
+            BlockPos markerPos = startPos.offset(offset[0] * i, 0, offset[1] * i);
             level.setBlock(markerPos, BlockMapping.SIZE_MARKER_BLOCK.defaultBlockState(), 3);
         }
     }
@@ -251,7 +261,7 @@ public class BlockGenerator {
                         Direction direction = detectMarkerDirection(level, testPos);
                         if (direction != null) {
                             // 检测尺寸标记
-                            int baseSize = detectBaseSize(level, testPos);
+                            int baseSize = detectBaseSize(level, testPos, direction);
                             return new StructureInfo(testPos, direction, baseSize);
                         }
                     }
@@ -265,11 +275,19 @@ public class BlockGenerator {
     /**
      * 检测底面积大小
      */
-    private static int detectBaseSize(Level level, BlockPos markerPos) {
-        // 在红石块旁边数绿宝石块
+    private static int detectBaseSize(Level level, BlockPos markerPos, Direction direction) {
+        // 根据方向在L形内侧寻找绿宝石块
+        int[] offset = switch (direction) {
+            case NORTH -> new int[]{1, 1};
+            case SOUTH -> new int[]{-1, -1};
+            case EAST -> new int[]{-1, 1};
+            case WEST -> new int[]{1, -1};
+            default -> new int[]{1, 1};
+        };
+
         int count = 0;
         for (int i = 1; i <= 10; i++) { // 最多检测10个（对应640）
-            BlockPos checkPos = markerPos.offset(i + 1, 0, 0);
+            BlockPos checkPos = markerPos.offset(offset[0] * i, 0, offset[1] * i);
             if (level.getBlockState(checkPos).getBlock() == BlockMapping.SIZE_MARKER_BLOCK) {
                 count++;
             } else {
