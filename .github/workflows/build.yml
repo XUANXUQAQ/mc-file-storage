@@ -4,7 +4,13 @@
 # against bad commits.
 
 name: build
-on: [pull_request, push]
+on:
+  pull_request:
+  push:
+    branches:
+      - "**"
+    tags:
+      - "v*"
 
 jobs:
   build:
@@ -17,8 +23,8 @@ jobs:
       - name: setup jdk
         uses: actions/setup-java@v4
         with:
-          java-version: '21'
-          distribution: 'microsoft'
+          java-version: "21"
+          distribution: "microsoft"
       - name: make gradle wrapper executable
         run: chmod +x ./gradlew
       - name: build
@@ -28,3 +34,27 @@ jobs:
         with:
           name: Artifacts
           path: build/libs/
+
+  release:
+    needs: build
+    runs-on: ubuntu-24.04
+    if: startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: write
+    steps:
+      - name: checkout repository
+        uses: actions/checkout@v4
+      - name: download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: Artifacts
+          path: build/libs/
+      - name: create github release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: build/libs/*.jar
+          generate_release_notes: true
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
