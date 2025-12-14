@@ -1,9 +1,9 @@
 {
   "required": true,
-  "package": "github.mc.storage",
+  "package": "github.mc.storage.mixin.client",
   "compatibilityLevel": "JAVA_21",
   "client": [
-    "mixin.client.StorageClientMixin"
+    "StorageClientMixin"
   ],
   "injectors": {
     "defaultRequire": 1
