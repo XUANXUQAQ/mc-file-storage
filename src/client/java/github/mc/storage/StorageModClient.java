@@ -73,7 +73,7 @@ public class StorageModClient implements ClientModInitializer {
 
                             // 计算需要的层数
                             int layers = BlockGenerator.calculateLayers(base64Data);
-                            context.getSource().sendFeedback(Component.literal("§a将生成 " + layers + " 层方块 (每层 64x64)"));
+                            context.getSource().sendFeedback(Component.literal("§a将生成 " + layers + " 层方块"));
 
                             // 使用异步方法生成方块，显示进度
                             BlockGenerator.generateBlocksAtPlayerAsync(base64Data, message -> context.getSource().sendFeedback(Component.literal(message)));

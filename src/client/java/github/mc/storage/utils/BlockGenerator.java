@@ -155,21 +155,21 @@ public class BlockGenerator {
     /**
      * 生成尺寸标记
      * 使用绿宝石块在第0层标记底面积大小
-     * 标记方式：在L形标记的内侧放置 (baseSize / 64) 个绿宝石块
+     * 标记方式：在L形标记的后方放置 (baseSize / 64) 个绿宝石块
      */
     private static void generateSizeMarkers(Level level, BlockPos startPos, int baseSize, Direction direction) {
         int markerCount = baseSize / 64; // 64->1, 128->2, 192->3, 256->4, ...
 
-        // 根据方向决定绿宝石块的放置位置（L形内侧）
+        // 根据方向决定绿宝石块的放置位置（L形后方，远离数据延伸方向）
         int[] offset = switch (direction) {
-            case NORTH -> new int[]{1, 1};  // 向右上（东北）
-            case SOUTH -> new int[]{-1, -1}; // 向左下（西南）
-            case EAST -> new int[]{-1, 1};  // 向左上（东南）
-            case WEST -> new int[]{1, -1};  // 向右下（西北）
-            default -> new int[]{1, 1};
+            case NORTH -> new int[]{0, -1};  // 向南（L形后方）
+            case SOUTH -> new int[]{0, 1};   // 向北（L形后方）
+            case EAST -> new int[]{1, 0};    // 向西（L形后方）
+            case WEST -> new int[]{-1, 0};   // 向东（L形后方）
+            default -> new int[]{0, -1};
         };
 
-        // 沿着L形内侧放置绿宝石块
+        // 沿着L形后方放置绿宝石块
         for (int i = 1; i <= markerCount; i++) {
             BlockPos markerPos = startPos.offset(offset[0] * i, 0, offset[1] * i);
             level.setBlock(markerPos, BlockMapping.SIZE_MARKER_BLOCK.defaultBlockState(), 3);
@@ -276,13 +276,13 @@ public class BlockGenerator {
      * 检测底面积大小
      */
     private static int detectBaseSize(Level level, BlockPos markerPos, Direction direction) {
-        // 根据方向在L形内侧寻找绿宝石块
+        // 根据方向在L形后方寻找绿宝石块
         int[] offset = switch (direction) {
-            case NORTH -> new int[]{1, 1};
-            case SOUTH -> new int[]{-1, -1};
-            case EAST -> new int[]{-1, 1};
-            case WEST -> new int[]{1, -1};
-            default -> new int[]{1, 1};
+            case NORTH -> new int[]{0, -1};  // 向南
+            case SOUTH -> new int[]{0, 1};   // 向北
+            case EAST -> new int[]{1, 0};    // 向西
+            case WEST -> new int[]{-1, 0};   // 向东
+            default -> new int[]{0, -1};
         };
 
         int count = 0;
